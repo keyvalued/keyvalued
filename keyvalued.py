@@ -147,7 +147,10 @@ class Client(asyncio.Protocol):
         return False
 
 def main():
-    os.unlink('/tmp/keyvalued.sock')
+    try:
+        os.unlink('/tmp/keyvalued.sock')
+    except:
+        pass
 
     loop = asyncio.get_event_loop()
     coro = loop.create_unix_server(Client, '/tmp/keyvalued.sock', backlog=65535)
