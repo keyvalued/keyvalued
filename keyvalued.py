@@ -117,10 +117,51 @@ class Client(asyncio.Protocol):
     def connection_made(self, transport):
         self.transport = transport
 
+    def lock(self, index, key, token, max_len=256000, max_age=600):
+        idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
+
+        ldict = idx.get('_locks', dict())
+        lock = None
+
+        if key in ldict:
+            lock = ldict[key]
+        if not lock and token:
+            lock = token
+        if not lock:
+            return None
+
+        ldict[key] = lock
+        indexes[index]['_locks'] = ldict
+
+        return lock
+
+    def unlock(self, index, key, token, max_len=256000, max_age=600):
+        idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
+
+        ldict = idx.get('_locks', dict())
+        lock = None
+
+        if key in ldict:
+            lock = ldict[key]
+        if not lock:
+            return False
+
+        if lock == token:
+            ldict.pop(key)
+        else:
+            return False
+
+        indexes[index]['_locks'] = ldict
+        return True
+
     def lookup(self, index, key):
         idx = indexes.get(index, None)
         if not idx:
             return self.error('Index not found')
+
+        lock = self.lock(index, key, None)
+        if lock:
+            return self.reply({'index': index, 'key': key, '_locked': lock})
 
         obj = idx.get(key)
         return self.reply({'index': index, 'key': key, '_source': obj, '_version': 1})
@@ -130,6 +171,17 @@ class Client(asyncio.Protocol):
         idx.put(key, obj, time.time() + expiry)
         indexes[index] = idx
         return self.reply({'index': index, 'key': key, '_source': obj, '_version': 1})
+
+    def r_lock_op(self, index, key, token):
+        l = self.lock(index, key, token)
+        while l != token:
+            l = self.lock(index, key, token)
+
+        return self.reply({'index': index, 'key': key, 'locked': True, 'token': l})
+
+    def r_unlock_op(self, index, key, token):
+        s = self.unlock(index, key, token)
+        return self.reply({'index': index, 'key': key, 'unlocked': s})
 
     # rough idea for get/index ops:
     # > {'index': '20141217.hits', 'key': 12}
@@ -145,8 +197,16 @@ class Client(asyncio.Protocol):
 
     def data_received(self, data):
         o = json.loads(data.decode('UTF-8', 'replace').strip('\r\n'))
-        if not o.get('_action', None):
+
+        act = o.get('_action', None)
+        if not act:
             return self.handle_get_or_index(o)
+
+        if act == 'r_lock':
+            return self.r_lock_op(o['index'], o['key'], o['token'])
+
+        if act == 'r_unlock':
+            return self.r_unlock_op(o['index'], o['key'], o['token'])
 
         return self.error('Unknown action requested')
 
