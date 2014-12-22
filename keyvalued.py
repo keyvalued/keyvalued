@@ -117,25 +117,38 @@ class Client(asyncio.Protocol):
     def connection_made(self, transport):
         self.transport = transport
 
-    # rough idea:
-    # > {'index': '20141217.hits', 'key': 12}
-    # < {'index': '20141217.hits', 'key': 12, '_source': {'count': 12}}
-    def data_received(self, data):
-        o = json.loads(data.decode('UTF-8', 'replace').strip('\r\n'))
-        if not o['key'] or not o['index']:
-            return self.error('no index or key')
-        if o.get('_source', None):
-            idx = indexes.get(o['index'], ExpiringDict(max_len=o.get('index.max_len', 256000), max_age_seconds=o.get('index.max_age', 600)))
-            idx.put(o['key'], o['_source'], time.time() + float(o.get('_expiry', 600)))
-            indexes[o['index']] = idx
-            return self.reply({'index': o['index'], 'key': o['key'], '_source': o['_source'], '_version': 1})
-
-        idx = indexes.get(o['index'], None)
+    def lookup(self, index, key):
+        idx = indexes.get(index, None)
         if not idx:
             return self.error('Index not found')
 
-        obj = idx.get(o['key'])
-        return self.reply({'index': o['index'], 'key': o['key'], '_source': obj, '_version': 1})
+        obj = idx.get(key)
+        return self.reply({'index': index, 'key': key, '_source': obj, '_version': 1})
+
+    def index(self, index, key, obj, expiry=600, max_len=256000, max_age=600):
+        idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
+        idx.put(key, obj, time.time() + expiry)
+        indexes[index] = idx
+        return self.reply({'index': index, 'key': key, '_source': obj, '_version': 1})
+
+    # rough idea for get/index ops:
+    # > {'index': '20141217.hits', 'key': 12}
+    # < {'index': '20141217.hits', 'key': 12, '_source': {'count': 12}}
+    def handle_get_or_index(self, o):
+        if not o['key'] or not o['index']:
+            return self.error('no index or key')
+
+        if o.get('_source', None):
+            return self.index(o['index'], o['key'], o['_source'], expiry=o.get('_expiry', 600), max_len=o.get('index.max_len', 256000), max_age=o.get('index.max_age', 600))
+
+        return self.lookup(o['index'], o['key'])
+
+    def data_received(self, data):
+        o = json.loads(data.decode('UTF-8', 'replace').strip('\r\n'))
+        if not o.get('_action', None):
+            return self.handle_get_or_index(o)
+
+        return self.error('Unknown action requested')
 
     def reply(self, message):
         self.transport.write(bytes(json.dumps(message) + "\r\n", 'UTF-8'))
