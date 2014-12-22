@@ -174,8 +174,8 @@ class Client(asyncio.Protocol):
 
     def r_lock_op(self, index, key, token):
         l = self.lock(index, key, token)
-        while l != token:
-            l = self.lock(index, key, token)
+        if l != token:
+            return self.reply({'index': index, 'key': key, '_locked': l})
 
         return self.reply({'index': index, 'key': key, 'locked': True, 'token': l})
 

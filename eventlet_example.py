@@ -22,26 +22,56 @@ class EventletKeyValueClient(object):
     def __init__(self, path='/tmp/keyvalued.sock'):
         self.path = path
 
+    def submit(self, payload):
+        s = eventlet.connect(self.path, family=socket.AF_UNIX)
+        s.send(bytes(json.dumps(payload) + '\r\n', 'UTF-8'))
+        result = s.recv(16384)
+        return json.loads(result)
+
     def index(self, index, key, doc):
         payload = {
             'index': index,
             'key': key,
             '_source': doc
         }
-        s = eventlet.connect(self.path, family=socket.AF_UNIX)
-        s.send(bytes(json.dumps(payload) + '\r\n', 'UTF-8'))
-        result = s.recv(16384)
-        return json.loads(result)
+        return self.submit(payload)
 
     def fetch(self, index, key):
         payload = {
             'index': index,
             'key': key,
         }
-        s = eventlet.connect(self.path, family=socket.AF_UNIX)
-        s.send(bytes(json.dumps(payload) + '\r\n', 'UTF-8'))
-        result = s.recv(16384)
-        return json.loads(result)
+        result = self.submit(payload)
+        while '_locked' in result:
+            eventlet.sleep(0.05)
+            result = self.submit(payload)
+        return result
+
+    def r_lock(self, index, key, token):
+        payload = {
+            '_action': 'r_lock',
+            'index': index,
+            'key': key,
+            'token': token,
+        }
+        result = self.submit(payload)
+        while '_locked' in result:
+            eventlet.sleep(0.05)
+            result = self.submit(payload)
+        return result
+
+    def r_unlock(self, index, key, token):
+        payload = {
+            '_action': 'r_unlock',
+            'index': index,
+            'key': key,
+            'token': token,
+        }
+        result = self.submit(payload)
+        while '_locked' in result:
+            eventlet.sleep(0.05)
+            result = self.submit(payload)
+        return result
 
 kv_client = EventletKeyValueClient()
 pprint(kv_client.index('test', 'test-1', {'status': 'keyvalued is cool'}))
