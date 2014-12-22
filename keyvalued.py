@@ -121,7 +121,7 @@ class Client(asyncio.Protocol):
         idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
         indexes[index] = idx
 
-        ldict = idx.get('_locks', dict())
+        ldict = idx.get('_locks', ExpiringDict(max_len=256000, max_age_seconds=10))
         lock = None
 
         if key in ldict:
@@ -140,7 +140,7 @@ class Client(asyncio.Protocol):
         idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
         indexes[index] = idx
 
-        ldict = idx.get('_locks', dict())
+        ldict = idx.get('_locks', ExpiringDict(max_len=256000, max_age_seconds=10))
         lock = None
 
         if key in ldict:
