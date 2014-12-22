@@ -119,6 +119,7 @@ class Client(asyncio.Protocol):
 
     def lock(self, index, key, token, max_len=256000, max_age=600):
         idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
+        indexes[index] = idx
 
         ldict = idx.get('_locks', dict())
         lock = None
@@ -137,6 +138,7 @@ class Client(asyncio.Protocol):
 
     def unlock(self, index, key, token, max_len=256000, max_age=600):
         idx = indexes.get(index, ExpiringDict(max_len=max_len, max_age_seconds=max_age))
+        indexes[index] = idx
 
         ldict = idx.get('_locks', dict())
         lock = None

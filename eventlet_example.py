@@ -76,3 +76,15 @@ class EventletKeyValueClient(object):
 kv_client = EventletKeyValueClient()
 pprint(kv_client.index('test', 'test-1', {'status': 'keyvalued is cool'}))
 pprint(kv_client.fetch('test', 'test-1'))
+
+kv_client1 = EventletKeyValueClient()
+kv_client2 = EventletKeyValueClient()
+pprint(kv_client1.r_lock('test', 'test-1', 'test-token'))
+
+def unlock():
+    eventlet.sleep(2)
+    pprint(kv_client1.r_unlock('test', 'test-1', 'test-token'))
+
+eventlet.spawn(unlock)
+pprint(kv_client2.fetch('test', 'test-1'))
+
